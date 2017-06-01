@@ -17,18 +17,15 @@ if (os.hostname() == config.hostname) {
 }
 
 var Logger = require('./logger')
-var TTS = require('./tts')
-var MusicPlayer = require('./musicplayer')
+// var TTS = require('./tts')
 
 var weatherData
-var tts
-var musicPlayer
+// var tts
 var dayMilestones = config.dayMilestones
 var quiet = true
 var present = 0
 var lastPresentTime = Date.now()
 var presentSince = Date.now()
-var wakeGreeting = true
 var dontPlayMusicUntil = 0
 var buttonTime = Date.now()
 var buttonPressCount = 0
@@ -40,14 +37,7 @@ function init() {
   Logger.log(`Version: ${config.version}`, 100)
   Logger.log(`Time: ${moment().format('MM/DD/YY h:mm:ssa')}`, 100)
   Logger.log(`Port: ${config.port}`, 100)
-  Logger.log(`♪♫♪ GUITAR RIFF ♪♫♪`, 100)
   Logger.log('=============================================', 100)
-
-  // Set up Mopidy Music player.
-  musicPlayer = new MusicPlayer()
-
-  tts = new TTS(musicPlayer)
-  tts.speak(`Weather display... is online.`, {alert: false, bgm: true, volume: 0})
 
   // Web stuff
   app.get('/', (req, res) => res.sendFile(__dirname + '/public/index.html'))
@@ -67,67 +57,6 @@ function init() {
     present = 3
     res.json({ present: present })
   })
-  router.route('/music/playnews')
-  .get(function(req, res) {
-    musicPlayer.playPodcast(config.newsPodcastUri)
-    res.json({ play: 'news' })
-  })
-  router.route('/music/play')
-  .get(function(req, res) {
-    musicPlayer.playPlaylist(config.musicPlaylistUri, 85)
-    res.json({ play: musicPlayer.playing })
-  })
-  router.route('/music/stop')
-  .get(function(req, res) {
-    musicPlayer.stop()
-    presentSince = Date.now()
-    res.json({ play: musicPlayer.playing })
-  })
-  router.route('/music/delay')
-  .get(function(req, res) {
-    musicPlayer.stop()
-    presentSince = Date.now()
-    dontPlayMusicUntil = Math.max(dontPlayMusicUntil, Date.now()) + (30*60*1000)
-    res.json({ play: musicPlayer.playing })
-  })
-  router.route('/music/getstatus')
-  .get(function(req, res) {
-    res.json({ playing: musicPlayer.playing })
-  })
-  router.route('/morninggreeting')
-  .get(function(req, res) {
-    var textArray = []
-    textArray.push('Good morning.')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`It's ` + moment().format('h:mm') + `, on ` + moment().format('dddd, MMMM Do'))
-    textArray.push('<break length="x-strong"/>')
-    // It's a freezing 5 degrees
-    textArray.push(`It's ` + Math.round(weatherData.currently.apparentTemperature) + ` degrees.`)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`It's a lot colder than yesterday.`)
-    textArray.push(`Make sure to wear a ` + getApperel(weatherData.currently.apparentTemperature))
-    textArray.push('<break length="x-strong"/>')
-    // but, it will rise to 10 degrees in the day
-    textArray.push(`It will be ` + weatherData.hourly.summary)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`This week, ` + weatherData.daily.summary)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`Have a great day!`)
-
-    tts.speak(textArray.join('\n\n'), {alert: true, bgm: true, volume: 7, playnews: true})
-    res.json({ play: present })
-  })
-  router.route('/speak/:string')
-  .get(function(req, res) {
-    tts.speak(req.params.string, {
-        alert: true,
-        bgm: false,
-        volume: 7,
-      })
-    res.json({ string: req.params.string })
-  })
   app.use('/api', router)
   app.listen(config.port)
 
@@ -137,7 +66,7 @@ function init() {
 
   // log status information
   setTimeout(getStatus, 5000)
-  setInterval(getStatus, 15*60*1000)
+  setInterval(getStatus, 15*60*10)
 
   // check every second for new events
   setInterval(checkTime, 1000)
@@ -145,7 +74,10 @@ function init() {
   // get information from sensors
   if (gpio) {
     gpio.setup(config.pirGpioPin, gpio.DIR_IN, gpio.EDGE_BOTH)
-    gpio.setup(config.buttonGpioPin, gpio.DIR_IN, gpio.EDGE_BOTH)
+    gpio.setup(config.ledGpioPin, gpio.DIR_LOW)
+    gpio.setup(config.screenOnGpioPin, gpio.DIR_LOW)
+    gpio.setup(config.screenModeGpioPin, gpio.DIR_LOW)
+    //gpio.setup(config.buttonGpioPin, gpio.DIR_IN, gpio.EDGE_BOTH)
 
     gpio.on('change', function(channel, value) {
       Logger.log('Channel ' + channel + ' value is now ' + value)
@@ -153,20 +85,21 @@ function init() {
         if (value) {
           Logger.log('+++ PIR ACTIVATED: present: 4')
           setPresent()
-        } else {
-          Logger.log('--- PIR deactivated: present: 3')
-          present = 3
         }
+        //} else {
+        //  Logger.log('--- PIR deactivated: present: 3')
+        //  present = 3
+        //}
       }
 
-      if (channel == config.buttonGpioPin) {
-        if (!value) {
-          if ((Date.now() - buttonTime) > 500) {
-            buttonPress()
-            buttonTime = Date.now()
-          }
-        }
-      }
+      //if (channel == config.buttonGpioPin) {
+      //  if (!value) {
+      //    if ((Date.now() - buttonTime) > 500) {
+      //      buttonPress()
+      //      buttonTime = Date.now()
+      //    }
+      //  }
+      //}
 
 
     })
@@ -174,27 +107,24 @@ function init() {
 
 }
 
-function buttonPress() {
-  if (buttonPressCount == 0) {
-    musicPlayer.fadeDown(null, null, 73).then(()=> musicPlayer.volume = 73)
-  } else {
-    musicPlayer.stop()
-    presentSince = Date.now()
-    dontPlayMusicUntil = Math.max(dontPlayMusicUntil, Date.now()) + (30*60*1000)
-    Logger.log('Not playing playing music for: ' + moment(dontPlayMusicUntil).toNow(true))
-  }
-  buttonPressCount++
-}
+// function buttonPress() {
+//   if (buttonPressCount == 0) {
+//     musicPlayer.fadeDown(null, null, 73).then(()=> musicPlayer.volume = 73)
+//   } else {
+//     musicPlayer.stop()
+//     presentSince = Date.now()
+//     dontPlayMusicUntil = Math.max(dontPlayMusicUntil, Date.now()) + (30*60*1000)
+//     Logger.log('Not playing playing music for: ' + moment(dontPlayMusicUntil).toNow(true))
+//   }
+//   buttonPressCount++
+// }
 
 function getStatus() {
   var statusString = [];
   statusString.push('present: ' + present)
   statusString.push('present since: ' + moment.duration(Date.now()-presentSince).asMinutes().toFixed(2))
   statusString.push('away since: ' + moment.duration(Date.now()-lastPresentTime).asMinutes().toFixed(2))
-  statusString.push('music playing: ' + musicPlayer.playing)
-  statusString.push('dont play music for: ' + moment.duration(Date.now()-dontPlayMusicUntil).asMinutes().toFixed(2))
   statusString.push('quiet: ' + quiet)
-  statusString.push('wakeGreeting: ' + wakeGreeting)
   statusString.push('nextEvent: ' + dayMilestones[previousNextThing][0])
   statusString = 'STATUS: ' + statusString.join(' | ')
   Logger.log(statusString)
@@ -286,33 +216,43 @@ function checkTime() {
       switch (dayMilestones[previousNextThing][0]) {
         case "Wake up":
           quiet = false
-          wakeGreeting = false
-          tts.speak("It's " + moment().format('h:mma') + ".\n\nTime to wake up.", {alert: true, bgm: false, volume: 0})
+          Logger.log("It's " + moment().format('h:mma') + ".\n\nTime to wake up.")
           break
         case "Lunch":
-          if (present > 1) tts.speak("It's " + moment().format('h:mma') + ". It's time to eat lunch.", {alert: true, bgm: false, volume: 7})
+          if (present > 1) {
+            //tts.speak("It's " + moment().format('h:mma') + ". It's time to eat lunch.", {alert: true, bgm: false, volume: 7})
+            Logger.log("It's " + moment().format('h:mma') + ". It's time to eat lunch.")
+          }
           break
         case "Sunset":
-          if (present > 1) tts.speak("It's " + moment().format('h:mma') + ". It will be dark soon.\n\nTurn on a light.", {alert: true, bgm: false, volume: 7, playnews: true})
+          if (present > 1) {
+            //tts.speak("It's " + moment().format('h:mma') + ". It will be dark soon.\n\nTurn on a light.", {alert: true, bgm: false, volume: 7, playnews: true})
+            Logger.log("It's " + moment().format('h:mma') + ". It will be dark soon.\n\nTurn on a light.")
+          }
           break
         case "Dinner":
-          if (present > 1) tts.speak("It's dinner time! It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 7, playnews: true})
+          if (present > 1) {
+            //tts.speak("It's dinner time! It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 7, playnews: true})
+            Logger.log("It's dinner time! It's " + moment().format('h:mma'))
+          }
           break
         case "Time to bone":
-          if (present > 1) tts.speak("It's " + moment().format('h:mma') + "It's time to bone!", {alert: true, bgm: false, volume: 7})
+          if (present > 1) {
+            //tts.speak("It's " + moment().format('h:mma') + "It's time to bone!", {alert: true, bgm: false, volume: 7})
+            Logger.log("It's " + moment().format('h:mma') + "It's time to bone!")
+          }
           break
         case "Get ready for bed":
-          if (present > 1) tts.speak("Time to get ready for bed. It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 7})
-          if (musicPlayer.playing) {
-            musicPlayer.fadeDown(null, null, 73).then(()=> musicPlayer.volume = 73)
+          if (present > 1) {
+            //tts.speak("Time to get ready for bed. It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 7})
+            Logger.log("Time to get ready for bed. It's " + moment().format('h:mma'))
           }
-          break
         case "Bed time":
-          if (present > 1) tts.speak("Alright. It's time to go to bed. It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 5})
-          quiet = true
-          if (musicPlayer.playing) {
-            musicPlayer.stop()
+          if (present > 1) {
+            //tts.speak("Alright. It's time to go to bed. It's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 5})
+            Logger.log("Alright. It's time to go to bed. It's " + moment().format('h:mma'))
           }
+          quiet = true
           break
       }
     }
@@ -322,15 +262,9 @@ function checkTime() {
   if (previousHour !== h) {
     previousHour = h
     if ((present > 1) && !quiet && config.hourlyNotifications) {
-      tts.speak(moment(today).format('h:mma'), {alert: true, bgm: false, volume: 0})
+      //tts.speak(moment(today).format('h:mma'), {alert: true, bgm: false, volume: 0})
+      Logger.log(moment(today).format('h:mma'))
     } 
-  }
-
-  if (present > 2 && !musicPlayer.playing && !quiet) {
-    if (((Date.now() - presentSince)> config.playMusicAfter) && (Date.now() > dontPlayMusicUntil)) {
-      buttonPressCount = 0
-      musicPlayer.playPlaylist(config.musicPlaylistUri, 85)
-    }
   }
 
   if (present < 4) {
@@ -348,15 +282,15 @@ function checkTime() {
     }
   }
 
-  if (present < 3) {
-    var timeSince = Date.now() - lastPresentTime
-    if (timeSince > config.stopMusicAfter) {
-      if (musicPlayer.playing) {
-        musicPlayer.stop()
-        presentSince = Date.now()
-      }
-    }
-  }
+  //if (present < 3) {
+  //  var timeSince = Date.now() - lastPresentTime
+  //  if (timeSince > config.stopMusicAfter) {
+  //    if (musicPlayer.playing) {
+  //      musicPlayer.stop()
+  //      presentSince = Date.now()
+  //    }
+  //  }
+  //}
 
 }
 
@@ -383,31 +317,6 @@ function setPresent() {
     presentSince = Date.now()
   }
 
-  if (!wakeGreeting) {
-    var textArray = []
-    textArray.push('Good morning.')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`It's ` + moment().format('h:mm') + `, on ` + moment().format('dddd, MMMM Do'))
-    textArray.push('<break length="x-strong"/>')
-    // It's a freezing 5 degrees
-    textArray.push(`It's ` + Math.round(weatherData.currently.apparentTemperature) + ` degrees.`)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`It's a lot colder than yesterday.`)
-    textArray.push(`Make sure to wear a ` + getApperel(weatherData.currently.apparentTemperature))
-    textArray.push('<break length="x-strong"/>')
-    // but, it will rise to 10 degrees in the day
-    textArray.push(`It will be ` + weatherData.hourly.summary)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`This week, ` + weatherData.daily.summary)
-    textArray.push('<break length="x-strong"/>')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push('<break length="x-strong"/>')
-    textArray.push(`Have a great day!`)
-
-    tts.speak(textArray.join('\n\n'), {alert: true, bgm: true, volume: 7, playnews: true}, musicPlayer)
-    wakeGreeting = true
-  }
-
   // 3 = totally present
   // 2 = away for more than 2 minutes
   // 1 = firmly away for more than 1 hour
@@ -422,7 +331,10 @@ function setPresent() {
       case 1:
         // away.
         // say the time
-        if (!quiet) tts.speak("Welcome back.\n\nIt's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 0})
+        if (!quiet) {
+          //tts.speak("Welcome back.\n\nIt's " + moment().format('h:mma'), {alert: true, bgm: false, volume: 0})
+          Logger.log("Welcome back.\n\nIt's " + moment().format('h:mma'))
+        }
         break
       case 0:
         // was gone
@@ -432,7 +344,8 @@ function setPresent() {
           dayMilestones.forEach(function(v){if (v[0] == 'Bed time') {bedTimeHour = (v[1])}})
           var timeUntil = moment.duration(moment().hour(bedTimeHour).minute(0).diff(moment(), 'minutes', true), 'minutes').humanize()
           var text = `Welcome home.\n\n\n\n\n\n\n\nIt's ` + moment().format('h:mma') + `.\n ` + timeUntil + ` until bedtime!\n\nThere are a couple new shows on Hulu. The Daily Show and Adventure Time.\n\nLet's have a great night!`
-          tts.speak(text, {alert: true, bgm: true, volume: 7, playnews: true})
+          //tts.speak(text, {alert: true, bgm: true, volume: 7, playnews: true})
+          Logger.log(text)
         } 
         break
     }
