@@ -85,6 +85,7 @@ function init() {
         if (value) {
           Logger.log('+++ PIR ACTIVATED: present: 4')
           setPresent()
+          screenOn()
         }
         //} else {
         //  Logger.log('--- PIR deactivated: present: 3')
@@ -118,6 +119,15 @@ function init() {
 //   }
 //   buttonPressCount++
 // }
+
+// WHY DOES IT BLINK ON THE START OF THE SERVER!
+function screenOn() {
+  gpio.write(config.ledGpioPin, true, function() {
+    setTimeout(function() {
+      gpio.write(config.ledGpioPin, false)
+    }, 1000)
+  })
+}
 
 function getStatus() {
   var statusString = [];
